@@ -1,0 +1,14 @@
+{
+  "name": "stormhacks_2026",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently -n client,gateway,ai -c cyan,green,magenta \"npm --prefix client run dev\" \"npm --prefix gateway run dev\" \"python -m uvicorn app.main:app --app-dir ai-service --reload --host 0.0.0.0 --port 8000\"",
+    "dev:client": "npm --prefix client run dev",
+    "dev:gateway": "npm --prefix gateway run dev",
+    "dev:ai": "python -m uvicorn app.main:app --app-dir ai-service --reload --host 0.0.0.0 --port 8000"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
