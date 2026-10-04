@@ -1,13 +1,23 @@
 import os
 import json
-import base64
+from functools import lru_cache
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from google import genai
 from google.genai import types
+from dotenv import load_dotenv
 
 # Initialize the Gemini client using official Google GenAI SDK
 # Make sure GOOGLE_API_KEY is set in your environment variables
-client = genai.Client()
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+
+@lru_cache(maxsize=1)
+def get_client():
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY is not configured")
+    return genai.Client(api_key=api_key)
 
 
 def extract_item_attributes(
@@ -38,7 +48,7 @@ def extract_item_attributes(
     if image_bytes:
         contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
 
-    response = client.models.generate_content(
+    response = get_client().models.generate_content(
         model="gemini-2.5-flash",
         contents=contents,
         config=types.GenerateContentConfig(
@@ -52,31 +62,27 @@ def extract_item_attributes(
 
 def generate_embedding(
     text_context: str, 
-    image_bytes: Optional[bytes] = None, 
-    mime_type: str = "image/jpeg",
     task_type: str = "RETRIEVAL_DOCUMENT"
 ) -> List[float]:
     """
-    Generates a 768-dimensional multimodal vector combining image and text context.
+    Generates a 768-dimensional text-only vector from description and attributes.
     
     Args:
         task_type: 
             - "RETRIEVAL_DOCUMENT" when storing an item into TiDB.
             - "RETRIEVAL_QUERY" when searching for a lost item.
     """
-    contents = [text_context]
-    if image_bytes:
-        contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
-
-    # Calls Gemini's native multimodal embedding model
-    response = client.models.embed_content(
-        model="text-embedding-004",  # or "gemini-embedding-2-preview"
-        contents=contents,
+    response = get_client().models.embed_content(
+        model="gemini-embedding-001",
+        contents=text_context,
         config=types.EmbedContentConfig(
-            task_type=task_type
+            task_type=task_type,
+            output_dimensionality=768,
         )
     )
 
+    if not response.embeddings or not response.embeddings[0].values:
+        raise ValueError("Gemini returned no embedding")
     return response.embeddings[0].values
 
 
@@ -111,7 +117,10 @@ def rerank_and_evaluate_matches(
     ]
     """
 
-    response = client.models.generate_content(
+    if not db_candidates:
+        return []
+
+    response = get_client().models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
