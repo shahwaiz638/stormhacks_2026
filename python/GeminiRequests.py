@@ -35,14 +35,29 @@ def getDescription(img):
     return response
 
 
+# given a description of an object, return an embedding of that description,
+# such that it can easily be compared to other possible descriptions
+def generateEmbedding(str):
+    result = client.models.embed_content(
+                model="gemini-embedding-2",
+                contents = str,
+                config=types.EmbedContentConfig(output_dimensionality=768)
+            )
+    return result
+
+
 # start execution here
+# asks the user to input a url. returns a 768-dimension embedding of the description of the image at the url
 
 def main():
     url = input("Enter the url of an image: ")
     print(url)
     img = urlToImage(url)
-    description = getDescription(img)
-    print(description.text)
+    description = getDescription(img).text
+    print(description)
+    embedding = generateEmbedding(description)
+    print(embedding)
+    return embedding
 
 
 if __name__ == "__main__":
