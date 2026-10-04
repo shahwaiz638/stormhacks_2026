@@ -1,16 +1,33 @@
-# React + Vite
+# Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Existing React 19 + Vite JavaScript app with React Router, Tailwind CSS 3, PostCSS, and Oxlint.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Use Node.js 22.12+ (or 20.19+) and npm.
 
-## React Compiler
+```sh
+npm install
+npm run dev
+npm run build
+npm run lint
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Vite proxies `/api` to `VITE_GATEWAY_URL`, defaulting to `http://localhost:4000`. See `.env.example`. `src/App.jsx` is an empty app shell ready for building LostLens section by section. The generated home page, agent playground, navigation, and chat component have been removed. React Router remains available through the existing `BrowserRouter` wrapper.
 
-## Expanding the Oxlint configuration
+## UI components
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+shadcn/ui is configured for JavaScript, the New York style, Neutral colors, and Tailwind CSS 3. Components belong in `src/components/ui`; `@/` resolves to `src/` in both Vite and the editor. Use `cn` from `@/lib/utils` to merge classes.
+
+Use the Tailwind 3-compatible CLI when adding components:
+
+```sh
+npx shadcn@2.3.0 add button
+```
+
+Theme tokens live in `src/index.css`, with matching utilities in `tailwind.config.js`. The root uses the `dark` class to preserve the starter's dark appearance; remove it to use the light tokens.
+
+## Lost item submission
+
+The form at `/report/lost` prepares a multipart POST using `src/lib/reports.js`. Set `VITE_LOST_REPORT_API_URL` in your local environment when the backend endpoint is ready, then restart Vite. An empty endpoint sends no request. Fields are `itemName`, `description`, `category` (when available), `lastSeenLocation`, `lastSeenAt` (local date/time), `timeZone`, `privateDetail`, and optional `photo`. The browser supplies the multipart content type and boundary. Category records will be connected later in `src/pages/LostReportPage.jsx`.
+
