@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routes import router
 
-app = FastAPI(title="Backend API")
+app = FastAPI(title="LostLens API")
 
 app.add_middleware(
     CORSMiddleware,
