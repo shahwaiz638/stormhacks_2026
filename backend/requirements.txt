@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+google-genai
+python-dotenv
+pydantic
+pymysql
+cryptography
+python-multipart
+Pillow
+tzdata; sys_platform == "win32"
