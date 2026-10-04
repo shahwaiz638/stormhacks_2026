@@ -1,32 +1,31 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { LoaderCircle } from 'lucide-react'
+import ReportFeedback from '@/components/ReportFeedback'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { NativeSelect } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { buildLostReportData, sendLostReport } from '@/lib/reports'
 
-// Replace with category records from the API once its endpoint is available.
-const categories = []
-
 function LostReportPage() {
   const [isSending, setIsSending] = useState(false)
-  const [status, setStatus] = useState({ message: '', error: false })
+  const [status, setStatus] = useState({ message: '', error: false, result: null })
   const sending = useRef(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
     if (sending.current) return
-    const data = buildLostReportData(event.currentTarget)
+    const form = event.currentTarget
     sending.current = true
     setIsSending(true)
-    setStatus({ message: '', error: false })
+    setStatus({ message: '', error: false, result: null })
     try {
+      const data = await buildLostReportData(form)
       const result = await sendLostReport(data)
-      setStatus({ message: result.configured ? 'Your lost item report has been submitted.' : 'Your report is ready. Nothing has been sent yet; submission will be available soon.', error: false })
+      setStatus({ message: result.matches?.length ? `Search complete. ${result.matches.length} possible ${result.matches.length === 1 ? 'match' : 'matches'} found.` : 'No plausible matches found. Try adding more identifying details.', error: false, result })
     } catch (error) {
-      setStatus({ message: error.message || 'Unable to submit your report. Please try again.', error: true })
+      setStatus({ message: error.message || 'Unable to submit your report. Please try again.', error: true, result: null })
     } finally {
       sending.current = false
       setIsSending(false)
@@ -49,16 +48,8 @@ function LostReportPage() {
             <Textarea id="description" name="description" placeholder="Describe its color, brand, and any noticeable features…" required maxLength={5000} />
           </div>
           <div className="space-y-2">
-            <Label required htmlFor="category">Category</Label>
-            <NativeSelect id="category" name="category" defaultValue="" disabled={!categories.length} required aria-describedby="category-note">
-              <option value="" disabled>{categories.length ? 'Select a category' : 'Categories coming soon'}</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-            </NativeSelect>
-            <p id="category-note" className="text-xs text-muted-foreground">Categories will be available soon.</p>
-          </div>
-          <div className="space-y-2">
             <Label required htmlFor="last-seen-location">Where did you last see it?</Label>
-            <Input id="last-seen-location" name="lastSeenLocation" placeholder="e.g. Library, second floor" required maxLength={500} pattern=".*\S.*" />
+            <Input id="last-seen-location" name="lastSeenLocation" placeholder="e.g. Library, second floor" required maxLength={100} pattern=".*\S.*" />
           </div>
           <div className="space-y-2">
             <Label required htmlFor="last-seen-at">Date / approximate time</Label>
@@ -67,22 +58,25 @@ function LostReportPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="photo">Photo (optional)</Label>
-            <Input id="photo" name="photo" type="file" accept="image/*" aria-describedby="photo-note" className="h-auto min-h-10 cursor-pointer" />
-            <p id="photo-note" className="text-xs text-muted-foreground">Choose a photo of your item.</p>
+            <Input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="photo-note" className="h-auto min-h-10 cursor-pointer" />
+            <p id="photo-note" className="text-xs text-muted-foreground">JPEG, PNG, or WebP, up to 5 MiB.</p>
           </div>
           <div className="space-y-2">
-            <Label required htmlFor="private-detail">Private identifying detail</Label>
-            <Input id="private-detail" name="privateDetail" placeholder="A detail only you would know" required maxLength={1000} pattern=".*\S.*" aria-describedby="private-note" />
-            <p id="private-note" className="text-xs text-muted-foreground">This will NOT be shown publicly.</p>
+            <Label htmlFor="private-detail">Private identifying detail (optional)</Label>
+            <Input id="private-detail" name="privateDetail" placeholder="A detail only you would know" maxLength={1000} pattern=".*\S.*" aria-describedby="private-note" />
+            <p id="private-note" className="text-xs text-muted-foreground">This detail stays private and is not stored in this version.</p>
           </div>
-          <Button type="submit" className="w-full sm:w-auto">{isSending ? 'Sending…' : 'Submit report'}</Button>
+          <Button type="submit" disabled={isSending} aria-busy={isSending} className="w-full sm:w-auto">
+            {isSending && <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            {isSending ? 'Processing...' : 'Submit report'}
+          </Button>
         </fieldset>
-        <p role="status" aria-live="polite" className={`text-sm ${status.message ? 'mt-4' : ''} ${status.error ? 'text-red-400' : 'text-muted-foreground'}`}>{status.message}</p>
+        <ReportFeedback status={status} />
       </form>
 
       <div className="mt-10 flex flex-wrap items-center gap-3 border-t border-border pt-6">
         <Button variant="ghost" asChild><Link to="/">Return home</Link></Button>
-        <Button variant="outline" asChild><Link to="/report/found">Find My Item</Link></Button>
+        <Button variant="outline" asChild><Link to="/report/found">Found an item?</Link></Button>
       </div>
     </section>
   )

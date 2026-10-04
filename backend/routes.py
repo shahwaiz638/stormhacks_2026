@@ -17,12 +17,12 @@ from models import MatchesResponse, Report, ReportInput, ReportRecord, ReportRes
 from services import (
     MAX_IMAGES, MAX_IMAGE_BYTES, build_matching_text, decode_base64_image,
     extract_item_attributes, generate_embedding, image_data_url,
-    rerank_and_evaluate_matches, validate_image,
+    rerank_and_evaluate_matches, validate_image, validate_report_text, item_types_conflict,
 )
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-MAX_BODY_BYTES = 27 * 1024 * 1024
+MAX_BODY_BYTES = 36 * 1024 * 1024  # Five 5 MiB photos after Base64 encoding.
 
 
 def database_call(function, *args, **kwargs):
@@ -114,9 +114,13 @@ def prepare_images(report, uploads):
                 raise ValueError("Provide only one Base64 image value")
             value, url = url, None
         if value:
-            if images or url:
+            if images or url or report.images:
                 raise ValueError("Use uploads, Base64, or an image URL, not a combination")
             images.append(decode_base64_image(value, report.image_mime_type))
+        if report.images:
+            if images or url:
+                raise ValueError("Use one image input format at a time")
+            images.extend(decode_base64_image(value) for value in report.images)
         if url:
             parsed = urlsplit(url)
             if (len(url) > 2048 or parsed.scheme not in ("https", "http")
@@ -141,19 +145,19 @@ def find_matches(lost_report, embedding):
     excluded = {"image_url", "description_vector"}
     lost_details = {k: v for k, v in lost_report.items() if k not in excluded}
     candidate_details = [{k: v for k, v in row.items() if k not in excluded} for row in candidates]
-    warnings = []
-    try:
-        evaluations = gemini_call(rerank_and_evaluate_matches, lost_details, candidate_details)
-        by_id = {evaluation["candidate_id"]: evaluation for evaluation in evaluations}
-    except HTTPException:
-        by_id = {}
-        warnings.append("AI explanations unavailable; matches are ranked by vector similarity")
+    # Never show unvetted vector candidates when Gemini evaluation is unavailable.
+    evaluations = gemini_call(rerank_and_evaluate_matches, lost_details, candidate_details)
+    by_id = {evaluation["candidate_id"]: evaluation for evaluation in evaluations}
     matches = []
     for candidate in candidates:
         score = float(candidate["vector_score"])
         if not math.isfinite(score):
             continue
         evaluation = by_id.get(candidate["id"])
+        if (not evaluation or not evaluation["is_probable_match"]
+                or not evaluation["is_same_item_type"]
+                or item_types_conflict(lost_report.get("category"), candidate.get("category"))):
+            continue
         match = dict(candidate)
         match.update(
             candidate_id=candidate["id"], vector_score=score,
@@ -164,20 +168,28 @@ def find_matches(lost_report, embedding):
                 "Candidate retrieved by text vector similarity; AI explanation unavailable.",
         )
         matches.append(match)
-    # Keep ranking tied to measured cosine similarity; AI estimates are separate.
-    matches.sort(key=lambda match: match["vector_score"], reverse=True)
-    return matches, warnings
+    # Gemini makes the final selection; preserve vector scores separately for diagnostics.
+    matches.sort(key=lambda match: (match["ai_match_percentage"], match["vector_score"]), reverse=True)
+    return matches[:2], []
 
 
 def process_report(report, uploads, report_type):
+    try:
+        validate_report_text(report.title, report.description, report.location_name, report.private_detail)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     images, stored_url = prepare_images(report, uploads)
+    if report_type == "FOUND" and not images:
+        raise HTTPException(400, "A photo is required for a FOUND report")
     title = report.title or report.description[:80]
     record = {
-        "id": str(uuid4()), "report_type": report_type, "title": title,
+        "id": str(uuid4()) if report_type == "FOUND" else None,
+        "report_type": report_type, "title": title,
         "description": report.description, "location_name": report.location_name,
         "event_timestamp": report.event_timestamp, "image_url": stored_url,
     }
-    context = json.dumps({k: record[k] for k in ("title", "description", "location_name")})
+    context = json.dumps({k: record[k] for k in (
+        "report_type", "title", "description", "location_name", "event_timestamp")}, default=str)
     attributes = gemini_call(
         extract_item_attributes, context,
         image_bytes=images[0][0] if images else None,
@@ -187,24 +199,22 @@ def process_report(report, uploads, report_type):
     text = build_matching_text(record, attributes)
     embedding = gemini_call(generate_embedding, text,
         task_type="RETRIEVAL_QUERY" if report_type == "LOST" else "RETRIEVAL_DOCUMENT")
-    database_call(database.save_report, record, attributes, embedding)
+    if report_type == "FOUND":
+        database_call(database.save_report, record, attributes, embedding)
     warnings = []
     if report.private_detail:
         warnings.append("Private identifying detail was not stored; the table has no private-detail column")
-    if len(images) > 1:
+    if len(images) > 1 and report_type == "FOUND":
         warnings.append("All photos were analyzed; only the first photo is stored for display")
     if stored_url and not images:
         warnings.append("image_url was stored as metadata; remote images are not fetched or analyzed")
     matches = []
     if report_type == "LOST":
-        try:
-            matches, match_warnings = find_matches({**record, **attributes}, embedding)
-            warnings.extend(match_warnings)
-        except HTTPException:
-            # The insert already committed: don't encourage a duplicate submission.
-            warnings.append("Report saved, but matching failed; retry GET /reports/{report_id}/matches")
+        matches, match_warnings = find_matches({**record, **attributes}, embedding)
+        warnings.extend(match_warnings)
     return {"success": True, "report_id": record["id"], "report_type": report_type,
-            "attributes": attributes, "matches": matches, "warnings": warnings}
+            "saved": report_type == "FOUND", "attributes": attributes,
+            "matches": matches, "warnings": warnings}
 
 
 # Describe both accepted formats in /docs while retaining the existing form aliases.
@@ -236,13 +246,13 @@ async def create_found_report(request: Request):
     return await run_in_threadpool(process_report, report, images, "FOUND")
 
 
-@router.post("/reports/lost", response_model=ReportResponse, status_code=201, openapi_extra=REPORT_BODY)
+@router.post("/reports/lost", response_model=ReportResponse, openapi_extra=REPORT_BODY)
 async def create_lost_report(request: Request):
     report, images = await parse_report(request)
     return await run_in_threadpool(process_report, report, images, "LOST")
 
 
-@router.post("/reports", response_model=ReportResponse, status_code=201,
+@router.post("/reports", response_model=ReportResponse,
     openapi_extra={"requestBody": {"required": True, "content": {
         "application/json": {"schema": Report.model_json_schema()}}}})
 async def create_report(request: Request):

@@ -13,7 +13,7 @@ npm run build
 npm run lint
 ```
 
-Vite proxies `/api` to `VITE_GATEWAY_URL`, defaulting to `http://localhost:4000`. See `.env.example`. `src/App.jsx` is an empty app shell ready for building LostLens section by section. The generated home page, agent playground, navigation, and chat component have been removed. React Router remains available through the existing `BrowserRouter` wrapper.
+Run FastAPI from `backend/` with `python main.py` and Vite from `client/` with `npm run dev`. Open `http://localhost:5173`. Both servers bind to `0.0.0.0`. Other devices can open `http://<computer-LAN-IP>:5173`; the client uses that same hostname on port 8000 for the API. `VITE_API_URL` optionally overrides the API URL. No gateway is used.
 
 ## UI components
 
@@ -27,7 +27,10 @@ npx shadcn@2.3.0 add button
 
 Theme tokens live in `src/index.css`, with matching utilities in `tailwind.config.js`. The root uses the `dark` class to preserve the starter's dark appearance; remove it to use the light tokens.
 
-## Lost item submission
+## Report submission
 
-The form at `/report/lost` prepares a multipart POST using `src/lib/reports.js`. Set `VITE_LOST_REPORT_API_URL` in your local environment when the backend endpoint is ready, then restart Vite. An empty endpoint sends no request. Fields are `itemName`, `description`, `category` (when available), `lastSeenLocation`, `lastSeenAt` (local date/time), `timeZone`, `privateDetail`, and optional `photo`. The browser supplies the multipart content type and boundary. Category records will be connected later in `src/pages/LostReportPage.jsx`.
+`/report/lost` posts JSON to `http://<frontend-hostname>:8000/reports/lost`; `/report/found` posts to `/reports/found`. Fields are `title` (lost form), `description`, `location_name`, `event_timestamp`, `time_zone`, and `images`, an array of Base64 data URLs. Found reports require a photo; lost photos are optional. Uploads accept up to five JPEG/PNG/WebP photos, 5 MiB each. The location limit is 100 characters.
 
+The backend owns Gemini instructions and validates the photos and structured attributes before storing FOUND reports and 768-dimensional text embeddings in TiDB. LOST submissions are read-only searches: vector retrieval gets five FOUND candidates, then Gemini rejects incompatible types and selects at most two plausible matches. No LOST row is inserted. If Gemini evaluation fails, the API returns an error instead of unvetted matches. The frontend and backend apply a basic instruction-pattern guard; it is not a guarantee against prompt injection. Private identifying details are not stored or sent to Gemini because the table has no private-detail column.
+
+The submit button spins while processing. A shadcn-style alert reports success/failure; matches appear automatically below the form with photos. Expand Processing details for IDs, extracted attributes, vector/AI scores, and notices. Credentials belong only in `backend/.env`.

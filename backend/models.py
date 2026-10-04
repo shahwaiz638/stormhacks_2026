@@ -23,6 +23,7 @@ class ReportInput(BaseModel):
                            validation_alias=AliasChoices("time_zone", "timeZone"))
     image_base64: str | None = Field(default=None, max_length=7_000_000,
         validation_alias=AliasChoices("image_base64", "image"))
+    images: list[Annotated[str, Field(max_length=7_000_000)]] = Field(default_factory=list, max_length=5)
     image_mime_type: str | None = Field(default=None, max_length=100)
     image_url: str | None = Field(default=None, max_length=7_000_000)
     # The real table has no private-detail column. Never persist or publish this.
@@ -73,6 +74,7 @@ class MatchEvaluation(BaseModel):
     candidate_id: str = Field(min_length=1, max_length=36)
     match_percentage: int = Field(ge=0, le=100)
     is_probable_match: bool
+    is_same_item_type: bool
     matching_reasons: list[ShortText] = Field(max_length=10)
     summary_explanation: str = Field(max_length=1000)
 
@@ -102,7 +104,8 @@ class MatchResult(ReportRecord):
 
 class ReportResponse(BaseModel):
     success: bool = True
-    report_id: str
+    report_id: str | None = None
+    saved: bool = False
     report_type: ReportType
     attributes: ItemAttributes
     matches: list[MatchResult] = Field(default_factory=list)

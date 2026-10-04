@@ -1,6 +1,6 @@
 """Interactive LostLens API demo. Run: python demo.py
 
-Uses the real HTTP endpoints, Gemini, and TiDB. Submissions are saved permanently.
+Uses the real HTTP endpoints, Gemini, and TiDB. Only FOUND submissions are saved.
 Starts a local backend if needed, and stops only the server it started.
 No API keys or database credentials are handled by this demo.
 """
@@ -62,7 +62,7 @@ def ensure_server(base_url):
         raise DemoError("Start the backend at the specified URL, then run the demo again.")
     print("Starting FastAPI locally...")
     process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1",
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0",
          "--port", str(url.port or 80)],
         cwd=Path(__file__).resolve().parent,
         stdout=subprocess.DEVNULL,
@@ -128,7 +128,7 @@ def show_matches(matches):
 
 
 def submit_report(base_url, kind):
-    print(f"\nNew {kind.upper()} report (saved to your real TiDB database)")
+    print(f"\n{kind.upper()}: " + ("saved to TiDB" if kind == "found" else "read-only search; nothing is saved"))
     print("For a vision check, attach a real photo and use a neutral description")
     print("such as 'Please identify the item in this photo'.")
     payload = {
@@ -139,6 +139,8 @@ def submit_report(base_url, kind):
             datetime.now().astimezone().isoformat(timespec="seconds")),
     }
     image_path = ask("Photo path (JPEG/PNG/WebP; Enter to skip)")
+    if kind == "found" and not image_path:
+        raise DemoError("A photo is required for a FOUND report")
     if image_path:
         path = Path(image_path.strip('"').strip("'")).expanduser()
         try:
@@ -152,16 +154,17 @@ def submit_report(base_url, kind):
         payload["image_base64"] = base64.b64encode(data).decode("ascii")
         print(f"Photo attached: {path.name} ({len(data):,} bytes)")
     print("\nSending to FastAPI. Waiting for live Gemini extraction, a text embedding,")
-    print("and TiDB storage" + (", then FOUND-only search and AI explanations..." if kind == "lost" else "..."))
+    print("and FOUND-only search with Gemini selecting up to two matches..." if kind == "lost" else "and TiDB storage...")
     result = api(base_url, f"/reports/{kind}", "POST", payload)
     report_id = result["report_id"]
-    print(f"\nSAVED: {result['report_type']} report {report_id}")
+    print("\nSearch complete; no lost report was saved." if kind == "lost" else f"\nSAVED: FOUND report {report_id}")
     print("Gemini-extracted attributes:")
     show_json(result["attributes"])
     for warning in result.get("warnings", []):
         print("WARNING:", warning)
     if kind == "lost":
         show_matches(result.get("matches", []))
+        return None
     print("\nVerifying persistence through GET /reports/{id}...")
     try:
         stored = api(base_url, "/reports/" + quote(report_id, safe=""))
@@ -185,12 +188,12 @@ This demo calls the same HTTP API that React will call. No mocked AI responses.
    user text/images are treated as untrusted data. Output is schema-validated.
 3. services.generate_embedding turns the description and extracted attributes
    into a text-only vector of exactly 768 dimensions.
-4. database.save_report commits the report, attributes and vector to TiDB.
+4. FOUND reports are saved to TiDB; LOST submissions never insert/update a row.
 5. LOST reports search the closest five FOUND reports using cosine distance.
-6. Gemini compares those candidates and supplies matching reasons/explanations.
+6. Gemini rejects incompatible item types and selects up to two plausible matches.
 
-A successful submission proves extraction, embedding and storage completed.
-AI explanations can fail independently: read warnings and the match cards.
+A successful FOUND submission proves extraction, embedding and storage completed.
+A successful LOST search proves retrieval and Gemini evaluation completed.
 /health alone checks that FastAPI is running, not Gemini or TiDB connectivity.
 AI identification and match scores are estimates, not guarantees of correctness.
 The actual prompts and model configuration are in services.py.
@@ -209,7 +212,7 @@ def main():
     last_id = None
     try:
         print("LostLens live API demo")
-        print("Submissions use real Gemini calls and save real TiDB reports. Nothing is deleted.")
+        print("Real Gemini calls. FOUND reports are saved; LOST searches are read-only. Nothing is deleted.")
         process = ensure_server(base_url)
         print(f"API: {base_url} | Docs: {base_url}/docs")
         while True:
@@ -220,7 +223,7 @@ def main():
                 if choice == "0":
                     break
                 if choice in ("1", "2"):
-                    last_id = submit_report(base_url, "found" if choice == "1" else "lost")
+                    last_id = submit_report(base_url, "found" if choice == "1" else "lost") or last_id
                 elif choice == "3":
                     rows = api(base_url, "/reports?type=FOUND&limit=20")
                     print(f"\n{len(rows)} FOUND reports (up to 20):")

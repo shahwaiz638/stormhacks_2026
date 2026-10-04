@@ -21,18 +21,31 @@ function PhotoUpload({ files, onChange, disabled = false }) {
 
   function addFiles(incoming) {
     if (disabled) return
-    const images = Array.from(incoming).filter((file) => file.type.startsWith('image/'))
-    setError(images.length < incoming.length ? 'Only image files can be added.' : '')
     const next = [...files]
-    for (const image of images) {
-      if (!next.some((file) => file.name === image.name && file.size === image.size && file.lastModified === image.lastModified)) next.push(image)
+    let message = ''
+    for (const image of Array.from(incoming)) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.type)) {
+        message = 'Only JPEG, PNG, and WebP photos are supported.'
+        continue
+      }
+      if (!image.size || image.size > 5 * 1024 * 1024) {
+        message = 'Each photo must be nonempty and at most 5 MiB.'
+        continue
+      }
+      if (next.some((file) => file.name === image.name && file.size === image.size && file.lastModified === image.lastModified)) continue
+      if (next.length >= 5) {
+        message = 'Choose at most five photos.'
+        continue
+      }
+      next.push(image)
     }
+    setError(message)
     onChange(next)
   }
 
   return (
     <div className="space-y-3">
-      <input ref={input} id="found-photos" type="file" accept="image/*" multiple disabled={disabled} className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = '' }} />
+      <input ref={input} id="found-photos" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={disabled} className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = '' }} />
       <button
         type="button"
         disabled={disabled}
@@ -60,7 +73,7 @@ function PhotoUpload({ files, onChange, disabled = false }) {
           ))}
         </ul>
       )}
-      <p id="found-photo-note" className="text-xs text-muted-foreground">Photos are attached when you submit your report.</p>
+      <p id="found-photo-note" className="text-xs text-muted-foreground">Up to five JPEG, PNG, or WebP photos, 5 MiB each.</p>
       <p role="status" className="text-xs text-red-400">{error}</p>
     </div>
   )

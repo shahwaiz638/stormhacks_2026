@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { LoaderCircle } from 'lucide-react'
+import ReportFeedback from '@/components/ReportFeedback'
 import PhotoUpload from '@/components/PhotoUpload'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,25 +12,26 @@ import { buildFoundReportData, sendFoundReport } from '@/lib/reports'
 function FoundReportPage() {
   const [photos, setPhotos] = useState([])
   const [isSending, setIsSending] = useState(false)
-  const [status, setStatus] = useState({ message: '', error: false })
+  const [status, setStatus] = useState({ message: '', error: false, result: null })
   const sending = useRef(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
     if (sending.current) return
     if (!photos.length) {
-      setStatus({ message: 'Please add at least one photo of the item.', error: true })
+      setStatus({ message: 'Please add at least one photo of the item.', error: true, result: null })
       return
     }
-    const data = buildFoundReportData(event.currentTarget, photos)
+    const form = event.currentTarget
     sending.current = true
     setIsSending(true)
-    setStatus({ message: '', error: false })
+    setStatus({ message: '', error: false, result: null })
     try {
+      const data = await buildFoundReportData(form, photos)
       const result = await sendFoundReport(data)
-      setStatus({ message: result.configured ? 'Your found item report has been submitted.' : 'Your report is ready. Nothing has been sent yet; submission will be available soon.', error: false })
+      setStatus({ message: 'Your found report was analyzed and saved. Thank you!', error: false, result })
     } catch (error) {
-      setStatus({ message: error.message || 'Unable to submit your report. Please try again.', error: true })
+      setStatus({ message: error.message || 'Unable to submit your report. Please try again.', error: true, result: null })
     } finally {
       sending.current = false
       setIsSending(false)
@@ -51,16 +54,19 @@ function FoundReportPage() {
           </div>
           <div className="space-y-2">
             <Label required htmlFor="found-location">Location found</Label>
-            <Input id="found-location" name="foundLocation" placeholder="e.g. Library, second floor" required maxLength={500} pattern=".*\S.*" />
+            <Input id="found-location" name="foundLocation" placeholder="e.g. Library, second floor" required maxLength={100} pattern=".*\S.*" />
           </div>
           <div className="space-y-2">
             <Label required htmlFor="found-at">Date / approximate time</Label>
             <Input id="found-at" name="foundAt" type="datetime-local" required aria-describedby="found-time-note" className="[color-scheme:dark]" />
             <p id="found-time-note" className="text-xs text-muted-foreground">Use your local date and approximate time.</p>
           </div>
-          <Button type="submit" className="w-full sm:w-auto">{isSending ? 'Sending…' : 'Submit report'}</Button>
+          <Button type="submit" disabled={isSending} aria-busy={isSending} className="w-full sm:w-auto">
+            {isSending && <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            {isSending ? 'Processing...' : 'Submit report'}
+          </Button>
         </fieldset>
-        <p role="status" aria-live="polite" className={`text-sm ${status.message ? 'mt-4' : ''} ${status.error ? 'text-red-400' : 'text-muted-foreground'}`}>{status.message}</p>
+        <ReportFeedback status={status} />
       </form>
       <div className="mt-10 flex flex-wrap items-center gap-3 border-t border-border pt-6">
         <Button variant="ghost" asChild><Link to="/">Return home</Link></Button>
